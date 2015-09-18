@@ -1,316 +1,375 @@
-var _ONE_DAY = 86400000;
-var jq = window.Zepto || window.jQuery
+(function (window, document) {
 
-function simpleExtend(obj1, obj2) {
-	var out = obj2 || {};
+    'use strict';
 
-	for (var i in obj1) {
-		if (!(i in out)) {
-			out[i] = obj1[i]
-		}
-	}
+    var _DAY = 86400000;
+    var _ONE_DAY = 27000000;
+    var jq = window.jQuery;
 
-	return out;
-}
+    function simpleExtend(obj1, obj2) {
+        var out = obj2 || {};
 
-// IE's custom event support is totally borked.
-// Use jQuery if possible
-function triggerSimpleCustomEvent(el, eventName) {
-	if (jq) {
-		jq(el).trigger(eventName);
-	} else {
-		var event = document.createEvent('CustomEvent');
-		event.initCustomEvent(eventName, true, true, {});
-		el.dispatchEvent(event);
-	}
-}
+        for (var i in obj1) {
+            if (!(i in out)) {
+                out[i] = obj1[i];
+            }
+        }
 
-// el.classList not supported by < IE10
-// use jQuery if available
-function hasClass(el, className) {
-	if (jq) {
-		return jq(el).hasClass(className);
-	} else {
-		return el.classList.contains(className);
-	}
-}
+        return out;
+    }
 
-function Datepair(container, options) {
-	this.dateDelta = null;
-	this.timeDelta = null;
-	this._defaults =	{
-		startClass: 'start',
-		endClass: 'end',
-		timeClass: 'time',
-		dateClass: 'date',
-		defaultDateDelta: 0,
-		defaultTimeDelta: 3600000,
-		anchor: 'start',
+    // IE's custom event support is totally borked.
+    // Use jQuery if possible
+    function triggerSimpleCustomEvent(el, eventName) {
+        if (jq) {
+            jq(el).trigger(eventName);
+        } else {
+            var event = document.createEvent('CustomEvent');
+            event.initCustomEvent(eventName, true, true, {});
+            el.dispatchEvent(event);
+        }
+    }
 
-		// defaults for jquery-timepicker; override when using other input widgets
-		parseTime: function(input){
-			return jq(input).timepicker('getTime');
-		},
-		updateTime: function(input, dateObj){
-			jq(input).timepicker('setTime', dateObj);
-		},
-		setMinTime: function(input, dateObj){
-			jq(input).timepicker('option', 'minTime', dateObj);
-		},
+    // el.classList not supported by < IE10
+    // use jQuery if available
+    function hasClass(el, className) {
+        return el.hasClass(className);
+    }
 
-		// defaults for bootstrap datepicker; override when using other input widgets
-		parseDate: function(input){
-			return input.value && jq(input).datepicker('getDate');
-		},
-		updateDate: function(input, dateObj){
-			jq(input).datepicker('update', dateObj);
-		}
-	};
+    function Datepair(container, options) {
+        var self = this;
+        this.dateDelta = null;
+        this.timeDelta = null;
+        this._defaults = {
+            startClass: 'start',
+            endClass: 'end',
+            timeClass: 'time',
+            dateClass: 'date',
+            defaultDateDelta: 0,
+            defaultTimeDelta: 0,
+            anchor: 'start',
+            disableTimeRanges: [['11:30', '13:20']],
 
-	this.container = container;
-	this.settings = simpleExtend(this._defaults, options);
+            // defaults for jquery-timepicker; override when using other input widgets
+            parseTime: function (input) {
+                return input.timepicker('getTime');
+            },
+            updateTime: function (input, dateObj) {
+                input.timepicker('setTime', dateObj);
+            },
+            setMinTime: function (input, dateObj) {
+                input.timepicker('option', 'minTime', dateObj);
+            },
+            getMinTime: function (input) {
+                return '8:30';
+            },
+            // defaults for bootstrap datepicker; override when using other input widgets
+            parseDate: function (input) {
+                return input.val() && input.datepicker('getDate');
+            },
+            updateDate: function (input, dateObj) {
+                input.datepicker('update', dateObj);
+            }
+        };
 
-	this.startDateInput = this.container.querySelector('.'+this.settings.startClass+'.'+this.settings.dateClass);
-	this.endDateInput = this.container.querySelector('.'+this.settings.endClass+'.'+this.settings.dateClass);
-	this.startTimeInput = this.container.querySelector('.'+this.settings.startClass+'.'+this.settings.timeClass);
-	this.endTimeInput = this.container.querySelector('.'+this.settings.endClass+'.'+this.settings.timeClass);
+        this.container = container;
+        this.settings = simpleExtend(this._defaults, options);
 
-	// initialize date and time deltas
-	this.refresh()
-	this._updateEndMintime();
+        this.startDateInput = this.container.find('.' + this.settings.startClass + '.' + this.settings.dateClass);
+        this.endDateInput = this.container.find('.' + this.settings.endClass + '.' + this.settings.dateClass);
+        this.startTimeInput = this.container.find('.' + this.settings.startClass + '.' + this.settings.timeClass);
+        this.endTimeInput = this.container.find('.' + this.settings.endClass + '.' + this.settings.timeClass);
 
-	// init starts here
-	this._bindChangeHandler();
-}
+        if (this._defaults.disableTimeRanges.length > 0) {
+            for (var i in this._defaults.disableTimeRanges) {
+                this._defaults.disableTimeRanges[i] = [
+					this._time2int(this._defaults.disableTimeRanges[i][0]),
+					this._time2int(this._defaults.disableTimeRanges[i][1])
+                ];
+            }
+            // sort by starting time
+            this._defaults.disableTimeRanges = this._defaults.disableTimeRanges.sort(function (a, b) {
+                return a[0] - b[0];
+            });
+        }
+        // initialize date and time deltas
+        this.refresh();
+        this._updateEndMintime();
 
-Datepair.prototype = {
-	constructor: Datepair,
+        //// init starts here
+        this._bindChangeHandler();
+    }
 
-	option: function(key, value)
-	{
-		if (typeof key == 'object') {
-			this.settings = simpleExtend(this.settings, key);
+    Datepair.prototype = {
+        constructor: Datepair,
 
-		} else if (typeof key == 'string' && typeof value != 'undefined') {
-			this.settings[key] = value;
+        option: function (key, value) {
+            if (typeof key == 'object') {
+                this.settings = simpleExtend(this.settings, key);
 
-		} else if (typeof key == 'string') {
-			return this.settings[key];
-		}
+            } else if (typeof key == 'string' && typeof value != 'undefined') {
+                this.settings[key] = value;
 
-		this._updateEndMintime();
-	},
+            } else if (typeof key == 'string') {
+                return this.settings[key];
+            }
 
-	getTimeDiff: function()
-	{
-		// due to the fact that times can wrap around, timeDiff for any
-		// time-only pair will always be >= 0
-		var delta = this.dateDelta + this.timeDelta;
-		if (delta < 0 && (!this.startDateInput || !this.endDateInput) ) {
-			delta += _ONE_DAY
-		}
+            this._updateEndMintime();
+        },
 
-		return delta;
-	},
+        getTimeDiff: function () {
+            // due to the fact that times can wrap around, timeDiff for any
+            // time-only pair will always be >= 0
+            var delta = this.dateDelta + this.timeDelta;
 
-	refresh: function()
-	{
-		if (this.startDateInput && this.startDateInput.value && this.endDateInput && this.endDateInput.value) {
-			var startDate = this.settings.parseDate(this.startDateInput);
-			var endDate = this.settings.parseDate(this.endDateInput);
-			if (startDate && endDate) {
-				this.dateDelta = endDate.getTime() - startDate.getTime();
-			}
-		}
-		if (this.startTimeInput && this.startTimeInput.value && this.endTimeInput && this.endTimeInput.value) {
-			var startTime = this.settings.parseTime(this.startTimeInput);
-			var endTime = this.settings.parseTime(this.endTimeInput);
-			if (startTime && endTime) {
-				this.timeDelta = endTime.getTime() - startTime.getTime();
-			}
-		}
-	},
+            if (this.dateDelta > _ONE_DAY) {
+                var days = this.dateDelta / _ONE_DAY;
+                var startDate = new Date(this.startDateInput.val());
+                var l = startDate.getDay();
+                var cnt = parseInt(days / 7);
+                var yushu = days % 7;
+                if (yushu + l > 7) {
+                    cnt++;
+                }
+                delta -= cnt * _ONE_DAY;
+            }
 
-	remove: function()
-	{
-		this._unbindChangeHandler()
-	},
+            if (!(!this.startDateInput.val() && !this.endDateInput.val()) && (!this.startTimeInput.val() || !this.endTimeInput.val())) {
+                delta += _ONE_DAY;
+            }
 
-	_bindChangeHandler: function(){
-		// addEventListener doesn't work with synthetic "change" events
-		// fired by jQuery's trigger() functioin. If jQuery is present,
-		// use that for event binding
-		if (jq) {
-			jq(this.container).on('change.datepair', jq.proxy(this.handleEvent, this));
-		} else {
-			this.container.addEventListener('change', this, false);
-		}
-	},
+            //console.log('getTimeDiff: %d ,dateDelta:%d ,timeDelta:%d', delta, this.dateDelta, this.timeDelta);
+            return delta;
+        },
 
-	_unbindChangeHandler: function(){
-		if (jq) {
-			jq(this.container).off('change.datepair');
-		} else {
-			this.container.removeEventListener('change', this, false);
-		}
-	},
+        refresh: function () {
+            if (this.startDateInput.val() && this.endDateInput.val()) {
+                var startDate = this.settings.parseDate(this.startDateInput);
+                var endDate = this.settings.parseDate(this.endDateInput);
+                if (startDate && endDate) {
+                    this.dateDelta = endDate.getTime() - startDate.getTime();
+                }
+            }
+            if (this.startTimeInput.val() && this.endTimeInput.val()) {
+                var startTime = this.settings.parseTime(this.startTimeInput);
+                var endTime = this.settings.parseTime(this.endTimeInput);
+                if (startTime && endTime) {
+                    this.timeDelta = endTime.getTime() - startTime.getTime();
+                }
+            }
+        },
 
-	// This function will be called when passing 'this' to addEventListener
-	handleEvent: function(e){
-		// temporarily unbind the change handler to prevent triggering this
-		// if we update other inputs
-		this._unbindChangeHandler();
+        remove: function () {
+            this._unbindChangeHandler()
+        },
 
-		if (hasClass(e.target, this.settings.dateClass)) {
-			if (e.target.value != '') {
-				this._dateChanged(e.target);
-			} else {
-				this.dateDelta = null;
-			}
+        _bindChangeHandler: function () {
+            // addEventListener doesn't work with synthetic "change" events
+            // fired by jQuery's trigger() functioin. If jQuery is present,
+            // use that for event binding
+            //if (jq) {
+            this.container.on('change.datepair', jq.proxy(this.handleEvent, this));
+            //} else {
+            //    this.container.addEventListener('change', this, false);
+            //}
+        },
 
-		} else if (hasClass(e.target, this.settings.timeClass)) {
-			if (e.target.value != '') {
-				this._timeChanged(e.target);
-			} else {
-				this.timeDelta = null;
-			}
-		}
+        _unbindChangeHandler: function () {
+            //if (jq) {
+            this.container.off('change.datepair');
+            //} else {
+            //    this.container.removeEventListener('change', this, false);
+            //}
+        },
 
-		this._validateRanges();
-		this._updateEndMintime()
-		this._bindChangeHandler();
-	},
+        // This function will be called when passing 'this' to addEventListener
+        handleEvent: function (e) {
+            // temporarily unbind the change handler to prevent triggering this
+            // if we update other inputs
+            this._unbindChangeHandler();
+            var elc = $(e.target);
+            if (hasClass(elc, this.settings.dateClass)) {
+                if (elc.val() != '') {
+                    this._dateChanged(elc);
+                } else {
+                    this.dateDelta = null;
+                }
 
-	_dateChanged: function(target){
-		if (!this.startDateInput || !this.endDateInput) {
-			return
-		}
+            } else if (hasClass(elc, this.settings.timeClass)) {
+                if (elc.val() != '') {
+                    this._timeChanged(elc);
+                } else {
+                    this.timeDelta = null;
+                }
+            }
 
-		var startDate = this.settings.parseDate(this.startDateInput);
-		var endDate = this.settings.parseDate(this.endDateInput);
+            this._validateRanges();
+            this._updateEndMintime()
+            this._bindChangeHandler();
+            triggerSimpleCustomEvent(this.container, 'complete');
+            return;
+        },
 
-		if (!startDate || !endDate) {
-			if (this.settings.defaultDateDelta !== null) {
-				if (startDate) {
-					var newEnd = new Date(startDate.getTime() + this.settings.defaultDateDelta * _ONE_DAY);
-					this.settings.updateDate(this.endDateInput, newEnd);
+        _dateChanged: function (target) {
+            if (!this.startDateInput || !this.endDateInput) {
+                return
+            }
 
-				} else if (endDate) {
-					var newStart = new Date(endDate.getTime() - this.settings.defaultDateDelta * _ONE_DAY);
-					this.settings.updateDate(this.startDateInput, newStart);
-				}
+            var startDate = this.settings.parseDate(this.startDateInput);
+            var endDate = this.settings.parseDate(this.endDateInput);
 
-				this.dateDelta = this.settings.defaultDateDelta * _ONE_DAY;
-			} else {
-				this.dateDelta = null;
-			}
+            if (!startDate || !endDate) {
+                if (this.settings.defaultDateDelta !== null) {
+                    if (startDate) {
+                        var newEnd = new Date(startDate.getTime() + this.settings.defaultDateDelta * _ONE_DAY);
+                        this.settings.updateDate(this.endDateInput, newEnd);
 
-			return;
-		}
+                    } else if (endDate) {
+                        var newStart = new Date(endDate.getTime() - this.settings.defaultDateDelta * _ONE_DAY);
+                        this.settings.updateDate(this.startDateInput, newStart);
+                    }
 
-		if (this.settings.anchor == 'start' && hasClass(target, this.settings.startClass)) {
-			var newDate = new Date(startDate.getTime() + this.dateDelta);
-			this.settings.updateDate(this.endDateInput, newDate);
-		} else if (this.settings.anchor == 'end' && hasClass(target, this.settings.endClass)) {
-			var newDate = new Date(endDate.getTime() - this.dateDelta);
-			this.settings.updateDate(this.startDateInput, newDate);
-		} else {
-			if (endDate < startDate) {
-				var otherInput = hasClass(target, this.settings.startClass) ? this.endDateInput : this.startDateInput;
-				var selectedDate = this.settings.parseDate(target);
-				this.dateDelta = 0;
-				this.settings.updateDate(otherInput, selectedDate);
-			} else {
-				this.dateDelta = endDate.getTime() - startDate.getTime();
-			}
-		}
-	},
+                    this.dateDelta = this.settings.defaultDateDelta * _ONE_DAY;
+                } else {
+                    this.dateDelta = null;
+                }
 
-	_timeChanged: function(target){
-		if (!this.startTimeInput || !this.endTimeInput) {
-			return
-		}
+                return;
+            }
 
-		var startTime = this.settings.parseTime(this.startTimeInput);
-		var endTime = this.settings.parseTime(this.endTimeInput);
+            if (this.settings.anchor == 'start' && hasClass(target, this.settings.startClass)) {
+                var newDate = new Date(startDate.getTime() + (this.dateDelta / _ONE_DAY) * _DAY);
+                this.settings.updateDate(this.endDateInput, newDate);
+            } else if (this.settings.anchor == 'end' && hasClass(target, this.settings.endClass)) {
+                var newDate = new Date(endDate.getTime() - (this.dateDelta / _ONE_DAY) * _DAY);
+                this.settings.updateDate(this.startDateInput, newDate);
+            } else {
+                if (endDate < startDate) {
+                    var otherInput = hasClass(target, this.settings.startClass) ? this.endDateInput : this.startDateInput;
+                    var selectedDate = this.settings.parseDate(target);
+                    this.dateDelta = 0;
+                    this.settings.updateDate(otherInput, selectedDate);
+                } else {
+                    var days = (endDate.getTime() - startDate.getTime()) / _DAY;
+                    this.dateDelta = days * _ONE_DAY;
+                }
+            }
+        },
 
-		if (!startTime || !endTime) {
-			if (this.settings.defaultTimeDelta !== null) {
-				if (startTime) {
-					var newEnd = new Date(startTime.getTime() + this.settings.defaultTimeDelta);
-					this.settings.updateTime(this.endTimeInput, newEnd);
-				} else if (endTime) {
-					var newStart = new Date(endTime.getTime() - this.settings.defaultTimeDelta);
-					this.settings.updateTime(this.startTimeInput, newStart);
-				}
+        _timeChanged: function (target) {
 
-				this.timeDelta = this.settings.defaultTimeDelta;
-			} else {
-				this.timeDelta = null;
-			}
+            if (!this.startTimeInput || !this.endTimeInput) {
+                return;
+            }
 
-			return;
-		}
+            var startTime = this.settings.parseTime(this.startTimeInput);
+            var endTime = this.settings.parseTime(this.endTimeInput);
 
-		if (this.settings.anchor == 'start' && hasClass(target, this.settings.startClass)) {
-			var newTime = new Date(startTime.getTime() + this.timeDelta);
-			this.settings.updateTime(this.endTimeInput, newTime);
-			endTime = this.settings.parseTime(this.endTimeInput);
-		} else if (this.settings.anchor == 'end' && hasClass(target, this.settings.endClass)) {
-			var newTime = new Date(endTime.getTime() - this.timeDelta);
-			this.settings.updateTime(this.startTimeInput, newTime);
-			startTime = this.settings.parseTime(this.startTimeInput);
-		}
+            if (!startTime || !endTime) {
+                if (this.settings.defaultTimeDelta !== null) {
+                    if (startTime) {
+                        var newEnd = new Date(startTime.getTime() + this.settings.defaultTimeDelta);
+                        this.settings.updateTime(this.endTimeInput, newEnd);
+                    } else if (endTime) {
+                        var newStart = new Date(endTime.getTime() - this.settings.defaultTimeDelta);
+                        this.settings.updateTime(this.startTimeInput, newStart);
+                    }
 
-		var newDelta = endTime.getTime() - startTime.getTime();
-		var offset = (endTime < startTime) ? _ONE_DAY : -1 * _ONE_DAY;
+                    this.timeDelta = this.settings.defaultTimeDelta;
+                } else {
+                    this.timeDelta = null;
+                }
 
-		if (this.dateDelta !== null
-				&& this.dateDelta + this.timeDelta <= _ONE_DAY
-				&& this.dateDelta + newDelta != 0
-				&& (offset > 0 || this.dateDelta != 0)
-				&& ((newDelta >= 0 && this.timeDelta < 0) || (newDelta < 0 && this.timeDelta >= 0))) {
+                return;
+            }
 
-			if (this.settings.anchor == 'start') {
-				var endDate = this.settings.parseDate(this.endDateInput);
-				this.settings.updateDate(this.endDateInput, new Date(endDate.getTime() + offset));
-				this._dateChanged(this.endDateInput);
-			} else if (this.settings.anchor == 'end') {
-				var startDate = this.settings.parseDate(this.startDateInput);
-				this.settings.updateDate(this.startDateInput, new Date(startDate.getTime() - offset));
-				this._dateChanged(this.startDateInput);
-			}
-		}
-		this.timeDelta = newDelta;
-	},
+            if (this.settings.anchor == 'start' && hasClass(target, this.settings.startClass)) {
+                var newTime = new Date(startTime.getTime());
+                if ((!this.dateDelta || this.dateDelta === 0) && startTime > endTime)
+                    this.settings.updateTime(this.endTimeInput, newTime);
+                endTime = this.settings.parseTime(this.endTimeInput);
+            } else if (this.settings.anchor == 'end' && hasClass(target, this.settings.endClass)) {
+                var newTime = new Date(endTime.getTime());
+                this.settings.updateTime(this.startTimeInput, newTime);
+                startTime = this.settings.parseTime(this.startTimeInput);
+            }
 
-	_updateEndMintime: function(){
-		if (typeof this.settings.setMinTime != 'function') return;
+            var newDelta = endTime.getTime() - startTime.getTime();
 
-		var baseTime = null;
-		if (this.settings.anchor == 'start' && (!this.dateDelta || this.dateDelta < _ONE_DAY || (this.timeDelta && this.dateDelta + this.timeDelta < _ONE_DAY))) {
-			baseTime = this.settings.parseTime(this.startTimeInput);
-		}
+            var dr = this.settings.disableTimeRanges;
+            var drLen = dr.length;
+            if (drLen > 0) {
+                var start = this._time2int(startTime);
+                var end = this._time2int(endTime);
 
-		this.settings.setMinTime(this.endTimeInput, baseTime);
-	},
+                for (var i = 0; i < drLen; i++) {
+                    if (start <= dr[i][0] && end >= dr[i][1]) {
+                        newDelta -= (dr[i][1] - dr[i][0]) * 1000;
 
-	_validateRanges: function(){
-		if (this.startTimeInput && this.endTimeInput && this.timeDelta === null) {
-			triggerSimpleCustomEvent(this.container, 'rangeIncomplete');
-			return;
-		}
+                    } else if (start > end && end <= dr[i][0] && start >= dr[i][1]) {
+                        newDelta += (dr[i][1] - dr[i][0]) * 1000;
+                    }
+                }
+            }
 
-		if (this.startDateInput && this.endDateInput && this.dateDelta === null) {
-			triggerSimpleCustomEvent(this.container, 'rangeIncomplete');
-			return;
-		}
+            this.timeDelta = newDelta;
+        },
 
-		// due to the fact that times can wrap around, any time-only pair will be considered valid
-		if (!this.startDateInput || !this.endDateInput || this.dateDelta + this.timeDelta >= 0) {
-			triggerSimpleCustomEvent(this.container, 'rangeSelected');
-		} else {
-			triggerSimpleCustomEvent(this.container, 'rangeError');
-		}
-	}
-}
+        _updateEndMintime: function () {
+            if (typeof this.settings.setMinTime != 'function') return;
+
+            var baseTime = null;
+            if (this.settings.anchor == 'start' && (!this.dateDelta || this.dateDelta < _ONE_DAY || (this.timeDelta && this.dateDelta + this.timeDelta < _ONE_DAY))) {
+                baseTime = this.settings.parseTime(this.startTimeInput);
+            } else {
+                baseTime = this.settings.getMinTime(this.endTimeInput);
+            }
+
+            this.settings.setMinTime(this.endTimeInput, baseTime);
+        },
+
+        _validateRanges: function () {
+            if (this.startTimeInput && this.endTimeInput && this.timeDelta === null) {
+                triggerSimpleCustomEvent(this.container, 'rangeIncomplete');
+                return;
+            }
+
+            if (this.startDateInput && this.endDateInput && this.dateDelta === null) {
+                triggerSimpleCustomEvent(this.container, 'rangeIncomplete');
+                return;
+            }
+
+            // due to the fact that times can wrap around, any time-only pair will be considered valid
+            if (!this.startDateInput || !this.endDateInput || this.dateDelta + this.timeDelta >= 0) {
+                triggerSimpleCustomEvent(this.container, 'rangeSelected');
+            } else {
+                triggerSimpleCustomEvent(this.container, 'rangeError');
+            }
+        },
+        _updateShow: function () {
+
+        },
+        _time2int: function (timeString) {
+
+            if (typeof (timeString) == 'object') {
+                return timeString.getHours() * 3600 + timeString.getMinutes() * 60 + timeString.getSeconds();
+            }
+
+            var pattern = new RegExp('^([0-2]?[0-9])\\W?([0-5][0-9])?\\W?([0-5][0-9])?$');
+
+            var time = timeString.match(pattern);
+            if (!time) {
+                return null;
+            }
+            var hour = parseInt(time[1] * 1, 10);
+            var hours = hour;
+            var minutes = (time[2] * 1 || 0);
+            var seconds = (time[3] * 1 || 0);
+            var timeInt = hours * 3600 + minutes * 60 + seconds;
+            return timeInt;
+        }
+    }
+
+    window.Datepair = Datepair;
+
+}(window, document));
